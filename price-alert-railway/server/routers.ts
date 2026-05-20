@@ -107,6 +107,14 @@ export const appRouter = router({
       return testTelegramConnection();
     }),
 
+    runtimeConfig: protectedProcedure.query(() => {
+      return {
+        alertCronSchedule: process.env.ALERT_CRON_SCHEDULE ?? "*/10 * * * *",
+        priceFetchConcurrency: parseInt(process.env.PRICE_FETCH_CONCURRENCY ?? "5", 10) || 5,
+        telegramMinIntervalMs: parseInt(process.env.TELEGRAM_MIN_INTERVAL_MS ?? "1100", 10) || 1100,
+      };
+    }),
+
     sendTestMessage: protectedProcedure.mutation(async () => {
       const result = await testTelegramConnection();
       return result;

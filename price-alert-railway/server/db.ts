@@ -2,7 +2,7 @@
  * Database helpers — standalone (no Manus dependency)
  */
 
-import { eq, and } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { alerts, alertLogs, users } from "../drizzle/schema";
 import type { InsertUser, InsertAlert, InsertAlertLog } from "../drizzle/schema";
@@ -88,5 +88,10 @@ export async function createAlertLog(data: Omit<InsertAlertLog, "id" | "sentAt">
 export async function getAlertLogsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(alertLogs).where(eq(alertLogs.userId, userId));
+  return db
+    .select()
+    .from(alertLogs)
+    .where(eq(alertLogs.userId, userId))
+    .orderBy(desc(alertLogs.sentAt))
+    .limit(200);
 }

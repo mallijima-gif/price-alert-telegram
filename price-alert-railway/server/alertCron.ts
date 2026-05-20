@@ -1,6 +1,6 @@
 /**
- * Alert Cron — standalone version using node-cron
- * Runs every minute: fetches prices and fires Telegram alerts
+ * Alert Cron — standalone version using node-cron.
+ * Fetches prices on a configurable schedule and fires Telegram alerts.
  */
 
 import cron from "node-cron";
@@ -9,6 +9,37 @@ import { fetchPrice, Market } from "./priceService";
 import { sendPriceAlert, isTelegramConfigured } from "./telegramService";
 
 let isRunning = false;
+
+const PRICE_FETCH_CONCURRENCY = Math.max(
+  1,
+  parseInt(process.env.PRICE_FETCH_CONCURRENCY ?? "5", 10) || 5
+);
+const CRON_SCHEDULE = process.env.ALERT_CRON_SCHEDULE ?? "*/10 * * * *";
+
+function priceKey(symbol: string, market: string): string {
+  return `${market}:${symbol.trim().toUpperCase()}`;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await mapper(items[currentIndex]!);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
+  );
+  return results;
+}
 
 export async function runPriceCheck(): Promise<{
   checked: number;
@@ -30,9 +61,31 @@ export async function runPriceCheck(): Promise<{
 
     console.log(`[AlertCron] Checking ${activeAlerts.length} alert(s)...`);
 
+    const uniquePriceItems = Array.from(
+      new Map(
+        activeAlerts.map((alert) => [
+          priceKey(alert.symbol, alert.market),
+          { symbol: alert.symbol, market: alert.market as Market },
+        ])
+      ).values()
+    );
+
+    const priceResults = await mapWithConcurrency(
+      uniquePriceItems,
+      PRICE_FETCH_CONCURRENCY,
+      (item) => fetchPrice(item.symbol, item.market)
+    );
+
+    const pricesByKey = new Map(
+      priceResults.map((result) => [priceKey(result.symbol, result.market), result])
+    );
+
     for (const alert of activeAlerts) {
       try {
-        const { price, error } = await fetchPrice(alert.symbol, alert.market as Market);
+        const { price, error } = pricesByKey.get(priceKey(alert.symbol, alert.market)) ?? {
+          price: null,
+          error: "Price result missing",
+        };
 
         if (price === null) {
           const msg = `Could not fetch price for ${alert.symbol} (${alert.market}): ${error}`;
@@ -94,13 +147,13 @@ export async function runPriceCheck(): Promise<{
   return { checked, fired, errors };
 }
 
-/** Start the 1-minute cron job (call once at server startup) */
+/** Start the price-check cron job (call once at server startup). */
 export function startCron(): void {
-  cron.schedule("* * * * *", async () => {
+  cron.schedule(CRON_SCHEDULE, async () => {
     const result = await runPriceCheck();
     if (result.fired > 0 || result.errors.length > 0) {
       console.log("[AlertCron] Result:", result);
     }
   });
-  console.log("[AlertCron] Cron started (every 1 minute)");
+  console.log(`[AlertCron] Cron started (${CRON_SCHEDULE})`);
 }

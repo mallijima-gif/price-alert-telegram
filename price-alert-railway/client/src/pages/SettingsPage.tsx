@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 
 export default function SettingsPage() {
   const { data: telegramStatus } = trpc.settings.telegramStatus.useQuery();
+  const { data: runtimeConfig } = trpc.settings.runtimeConfig.useQuery();
   const testTelegram = trpc.settings.sendTestMessage.useMutation({
     onSuccess: (res) => {
       if (res.ok) toast.success("✅ 텔레그램 연결 정상");
@@ -101,7 +102,21 @@ export default function SettingsPage() {
           </div>
           <div className="flex justify-between">
             <span style={{ color: "oklch(0.45 0.04 220)" }}>체크 주기</span>
-            <span style={{ color: "oklch(0.88 0.22 95)" }}>1분 (60초)</span>
+            <span style={{ color: "oklch(0.88 0.22 95)" }}>
+              {runtimeConfig?.alertCronSchedule ?? "*/5 * * * *"}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span style={{ color: "oklch(0.45 0.04 220)" }}>가격 조회 동시성</span>
+            <span style={{ color: "oklch(0.88 0.22 95)" }}>
+              {runtimeConfig?.priceFetchConcurrency ?? 5}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span style={{ color: "oklch(0.45 0.04 220)" }}>텔레그램 전송 간격</span>
+            <span style={{ color: "oklch(0.88 0.22 95)" }}>
+              {runtimeConfig?.telegramMinIntervalMs ?? 1100}ms
+            </span>
           </div>
         </div>
       </div>

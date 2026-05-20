@@ -6,6 +6,29 @@ import axios from "axios";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID ?? "";
+const TELEGRAM_MIN_INTERVAL_MS = Math.max(
+  1000,
+  parseInt(process.env.TELEGRAM_MIN_INTERVAL_MS ?? "1100", 10) || 1100
+);
+
+let lastSendAt = 0;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTelegramSlot(): Promise<void> {
+  const now = Date.now();
+  const waitMs = Math.max(0, lastSendAt + TELEGRAM_MIN_INTERVAL_MS - now);
+  if (waitMs > 0) await sleep(waitMs);
+  lastSendAt = Date.now();
+}
+
+function getRetryAfterMs(error: unknown): number | null {
+  if (!axios.isAxiosError(error)) return null;
+  const retryAfter = error.response?.data?.parameters?.retry_after;
+  return typeof retryAfter === "number" ? (retryAfter + 1) * 1000 : null;
+}
 
 export function isTelegramConfigured(): boolean {
   return BOT_TOKEN.length > 0 && CHAT_ID.length > 0;
@@ -14,6 +37,7 @@ export function isTelegramConfigured(): boolean {
 export async function sendTelegramMessage(text: string): Promise<boolean> {
   if (!isTelegramConfigured()) return false;
   try {
+    await waitForTelegramSlot();
     await axios.post(
       `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
       { chat_id: CHAT_ID, text, parse_mode: "HTML" },
@@ -21,6 +45,12 @@ export async function sendTelegramMessage(text: string): Promise<boolean> {
     );
     return true;
   } catch (e) {
+    const retryAfterMs = getRetryAfterMs(e);
+    if (retryAfterMs !== null) {
+      console.warn(`[Telegram] rate limited; retrying after ${retryAfterMs}ms`);
+      await sleep(retryAfterMs);
+      return sendTelegramMessage(text);
+    }
     console.error("[Telegram] send failed:", (e as Error).message);
     return false;
   }
