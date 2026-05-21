@@ -1,0 +1,14 @@
+[variables]
+NPM_CONFIG_PRODUCTION = "false"
+
+[phases.install]
+cmds = ["pnpm install --frozen-lockfile"]
+
+[phases.build]
+cmds = [
+  "pnpm vite build",
+  "pnpm esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist"
+]
+
+[start]
+cmd = "NODE_ENV=production node dist/index.js"
